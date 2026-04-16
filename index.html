@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Bot - Play Against AI</title>
+    
+    <!-- Chessboard.js CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+        
+        #board {
+            width: 400px;
+            height: 400px;
+            margin: 0 auto 30px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .status {
+            text-align: center;
+            font-size: 18px;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .status.check {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .status.checkmate {
+            background: #ffcdd2;
+            color: #b71c1c;
+            font-weight: bold;
+        }
+        
+        .buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .new-game {
+            background: #667eea;
+            color: white;
+        }
+        
+        .new-game:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .undo {
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .undo:hover {
+            background: #e0e0e0;
+        }
+        
+        .move-history {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .move-history h3 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .move-history p {
+            font-size: 14px;
+            color: #666;
+            word-wrap: break-word;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>♟️ Chess Bot</h1>
+        
+        <div id="board"></div>
+        
+        <div class="status" id="status">White's turn</div>
+        
+        <div class="buttons">
+            <button class="new-game" onclick="newGame()">New Game</button>
+            <button class="undo" onclick="undoMove()">Undo</button>
+        </div>
+        
+        <div class="move-history">
+            <h3>Move History</h3>
+            <p id="moveHistory">No moves yet</p>
+        </div>
+        
+        <div class="loading" id="loading" style="display: none;">
+            Bot is thinking...
+        </div>
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    
+    <!-- Chessboard.js -->
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    
+    <!-- Chess.js for move validation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+    <script>
+        var board = null;
+        var game = new Chess();
+        var $status = $('#status');
+        var $moveHistory = $('#moveHistory');
+        var $loading = $('#loading');
+        var isBotThinking = false;
+
+        function onDragStart(source, piece, position, orientation) {
+            if (game.game_over()) return false;
+            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+                (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+                return false;
+            }
+        }
+
+        function onDrop(source, target) {
+            if (isBotThinking) return 'snapback';
+            
+            var move = game.move({
+                from: source,
+                to: target,
+                promotion: 'q'
+            });
+
+            if (move === null) return 'snapback';
+
+            updateStatus();
+            
+            // Bot's turn
+            if (!game.game_over()) {
+                isBotThinking = true;
+                $loading.show();
+                setTimeout(makeBotMove, 100);
+            }
+        }
+
+        function onSnapEnd() {
+            board.position(game.fen());
+        }
+
+        function updateStatus() {
+            var status = '';
+            var moveColor = game.turn() === 'b' ? 'Black' : 'White';
+
+            if (game.in_checkmate()) {
+                status = 'Game over, ' + moveColor + ' is in checkmate.';
+                $status.addClass('checkmate');
+            } else if (game.in_draw()) {
+                status = 'Game over, drawn position';
+            } else {
+                status = moveColor + ' to move';
+                if (game.in_check()) {
+                    status += ', ' + moveColor + ' is in check';
+                    $status.addClass('check');
+                } else {
+                    $status.removeClass('check');
+                }
+            }
+
+            $status.removeClass('checkmate');
+            $status.text(status);
+            $moveHistory.text(game.pgn());
+        }
+
+        function makeBotMove() {
+            $.ajax({
+                url: '/api/move',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ fen: game.fen() }),
+                success: function(response) {
+                    console.log('Bot response:', response);
+                    var move = game.move({
+                        from: response.from,
+                        to: response.to,
+                        promotion: 'q'
+                    });
+                    if (move) {
+                        board.position(game.fen());
+                        updateStatus();
+                    } else {
+                        console.error('Invalid move from bot');
+                    }
+                    $loading.hide();
+                    isBotThinking = false;
+                },
+                error: function(error) {
+                    console.error('Error:', error);
+                    $loading.hide();
+                    isBotThinking = false;
+                }
+            });
+        }
+
+        function newGame() {
+            game.reset();
+            board.start();
+            updateStatus();
+            $loading.hide();
+        }
+
+        function undoMove() {
+            game.undo();
+            game.undo();
+            board.position(game.fen());
+            updateStatus();
+        }
+
+        $(document).ready(function() {
+            var config = {
+                draggable: true,
+                position: 'start',
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd,
+                pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+            };
+            board = Chessboard('board', config);
+            updateStatus();
+        });
+
+        $(window).resize(function() {
+            board.resize();
+        });
+    </script>
+</body>
+</html>
